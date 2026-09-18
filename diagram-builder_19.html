@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagram labeller builder</title>
+<!-- Glacial Indifference, and Lato behind it, exactly as the Canvas Snippets kit
+     loads them. Without these the --sans stack silently fell through to Arial. -->
+<link href="https://cdn.jsdelivr.net/gh/fontalternative/glacial-indifference/font.css" rel="stylesheet" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,400;0,700;0,900;1,400&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* Form controls do not inherit a font, so they are named explicitly. */
+  input, select, textarea, button { font-family: var(--sans); }
+  ::selection { background: var(--yellow); color: #ffffff; }
+  html, body { font-family: var(--sans); background: var(--bg); color: var(--ink); line-height: 1.55; }
+  /* Same tokens as the Canvas Snippets kit: University of Sydney black, white,
+     light grey, ochre, sandstone. --yellow keeps its name so every rule that
+     already references it picks up the accent without being rewritten. */
+  :root {
+    --ink: #000000; --ink-soft: #333333; --mute: #6E6E6E;
+    --rule: #E0E0E0; --bg: #FFFFFF; --soft: #F1F1F1;
+    --yellow: #E64626; --yellow-soft: #FCEDE2;
+    --sans: 'Glacial Indifference', 'Lato Extended', Lato, 'Helvetica Neue', Arial, sans-serif;
+    --mono: 'Courier New', Courier, ui-monospace, monospace;
+  }
+  #app { display: flex; min-height: 100vh; }
+  #sidebar { width: 420px; background: var(--bg); border-right: 1px solid var(--rule); padding: 28px 26px; flex-shrink: 0; max-height: 100vh; overflow-y: auto; }
+  #stage-wrap { flex: 1; padding: 28px 26px; min-width: 0; }
+  h1 { font-family: var(--sans); font-size: 26px; font-weight: 400; line-height: 1.2; margin-bottom: 8px; }
+  .lead { font-size: 13px; color: var(--mute); line-height: 1.55; margin-bottom: 26px; }
+  .section { margin-bottom: 26px; padding-bottom: 22px; border-bottom: 1px solid var(--rule); }
+  .section:last-child { border-bottom: none; }
+  /* Section heads copy the kit's step head exactly: a large plain numeral beside a
+     small letter-spaced label, baseline aligned. No filled circle. */
+  .section h2 { display:flex; align-items: baseline; gap: 12px; margin-bottom: 22px; }
+  .section h2 .step-num {
+    font-family: var(--sans); font-size: 30px; font-weight: 400; line-height: 1;
+    color: var(--ink); flex-shrink: 0;
+  }
+  .section h2 .step-label {
+    font-family: var(--sans); font-size: 11px; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--mute); font-weight: 600;
+  }
+  label.fld { display:block; font-family: var(--sans); font-size: 12px; font-weight: 500; color: var(--ink); margin-bottom: 6px; }
+  input[type="text"], input[type="url"], select, textarea {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 0;
+    font-size: 14px; font-family: var(--sans); color: var(--ink); background: var(--bg);
+    margin-bottom: 10px; outline: none; transition: border-color .15s, box-shadow .15s;
+  }
+  textarea { resize: vertical; min-height: 48px; line-height: 1.5; }
+  input[type="text"]:focus, input[type="url"]:focus, select:focus, textarea:focus {
+    border-color: var(--ink); box-shadow: 0 0 0 3px var(--rule);
+  }
+  button {
+    padding: 8px 16px; background: var(--soft); color: var(--ink);
+    border: none; border-radius: 0; cursor: pointer;
+    font-size: 13px; font-family: var(--sans); font-weight: 500;
+    transition: background .12s ease;
+  }
+  button:hover { background: var(--yellow-soft); }
+  button.primary { background: var(--yellow); color: #ffffff; }
+  button.primary:hover { background: #cf3f22; }
+  button.full { display:block; width:100%; text-align:center; }
+  button.tiny { padding: 3px 10px; font-size: 11px; font-weight: 400; }
+  .embed-box { width:100%; min-height:70px; font-family: var(--mono); font-size:11px; }
+  .optional-head { color: var(--mute); text-transform: uppercase; letter-spacing: 2px; font-size: 11px; font-weight: 600; margin-bottom: 12px; }
+  /* Stratum-style dark code panel with the copy button inside */
+  .code-panel { background: var(--ink); border-radius: 0; overflow: hidden; position: relative; }
+  .code-panel-actions { display:flex; align-items:center; justify-content:flex-end; padding: 12px 14px 8px; border-bottom: 1px solid rgba(255,255,255,0.18); }
+  .capsule-yellow { display:inline-flex; align-items:center; gap:6px; padding: 8px 16px; border: 1px solid var(--yellow); border-radius: 0; background: var(--yellow); color: #ffffff; font-family: var(--sans); font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s ease; }
+  .capsule-yellow:hover { background: #cf3f22; border-color: #cf3f22; }
+  .code-body { font-family: var(--mono); font-size: 12px; line-height: 1.6; color: #E8E8E5; padding: 16px; margin: 0; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
+  .hint { font-family: var(--sans); font-size: 11px; line-height: 1.5; color: var(--mute); margin: -2px 0 8px; }
+
+  /* Marker list */
+  .marker-row { display:flex; align-items:flex-start; gap:8px; border:1px solid var(--rule); border-radius:0; padding:10px; margin-bottom:8px; }
+  .marker-badge { width:24px; height:24px; border-radius:50%; background:var(--yellow); color:#ffffff; font-family: var(--sans); font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:2px; border:1px solid var(--yellow); }
+  .marker-row .grow { flex:1; min-width:0; }
+  .marker-row input, .marker-row textarea { margin-bottom:6px; }
+  .marker-row .del { color:#791F1F; background:#FCEDE2; }
+
+  /* Stage */
+  #stage-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  #stage-title { font-family: var(--sans); font-size: 13px; color: var(--mute); }
+  #stage { position: relative; width: 100%; background: var(--bg); border:1px solid var(--rule); border-radius: 0; overflow: hidden; min-height: 360px; display:flex; align-items:center; justify-content:center; }
+  #stage.empty { cursor: default; }
+  #stage.ready { cursor: crosshair; }
+  #stage img { display:block; width:100%; height:auto; pointer-events:none; user-select:none; }
+  #empty-msg { font-family: var(--sans); color: var(--mute); font-size: 13px; font-style: italic; padding: 60px 20px; text-align:center; }
+
+  .dot {
+    position:absolute; transform: translate(-50%, -50%);
+    width:28px; height:28px; border-radius:50%;
+    background:var(--yellow); color:#ffffff; font-family: var(--sans); font-size:13px; font-weight:700;
+    display:flex; align-items:center; justify-content:center;
+    border:2px solid #ffffff; box-shadow:0 1px 4px rgba(0,0,0,0.35); cursor:grab;
+  }
+  .dot.sel { background:var(--ink); color:#fff; border-color:#fff; }
+
+  /* Preview-mode markers mirror the exported look */
+  .dot.preview-dot { background:var(--yellow); color:#ffffff; border:2px solid #ffffff; cursor:pointer;
+    transition:transform .15s ease, background .15s ease, color .15s ease, border-color .15s ease; }
+  .dot.preview-dot:hover { background:var(--ink); color:#fff; border-color:#fff; transform:scale(1.25); }
+  .dot-wrap.is-active .dot.preview-dot { background:var(--ink); color:#fff; border-color:#fff; transform:scale(1.15); }
+
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <h1>Diagram labeller</h1>
+    <p class="lead">Upload your diagram, click on it to drop numbered markers, and label each one. Students click a marker to reveal its label.</p>
+
+    <div class="section">
+      <h2><span class="step-num">1</span><span class="step-label">Upload picture</span></h2>
+      <p class="hint">Load your diagram here just to place the markers.</p>
+      <input type="file" id="file-input" accept="image/*" style="margin-bottom:10px;" />
+    </div>
+
+    <div class="section">
+      <h2><span class="step-num">2</span><span class="step-label">Markers</span></h2>
+      <p class="hint">Click on the diagram to add a marker, then type its label. Drag a marker to reposition.</p>
+      <div id="marker-list"></div>
+      <p class="hint" id="no-markers">No markers yet — click on the diagram.</p>
+    </div>
+
+    <div class="section">
+      <h2><span class="step-num">3</span><span class="step-label">Style</span></h2>
+      <label class="fld">Marker labels</label>
+      <select id="marker-style">
+        <option value="number">Numbered (1, 2, 3)</option>
+        <option value="letter">Lettered (A, B, C)</option>
+      </select>
+      <label class="fld">Label box colour</label>
+      <select id="box-style">
+        <option value="dark">Dark box, white text</option>
+        <option value="light">White box, dark text</option>
+      </select>
+      <label class="fld">Show the description</label>
+      <select id="desc-mode">
+        <option value="hover">In the box on hover</option>
+        <option value="bottom">In a list below the image</option>
+      </select>
+      <p class="hint" id="desc-hint">Good for short labels. Switch to the list below if you need longer explanations.</p>
+    </div>
+
+    <div class="section">
+      <h2><span class="step-num">4</span><span class="step-label">Export &amp; embed</span></h2>
+      <button class="primary full" id="btn-download">Download for Canvas</button>
+      <p class="hint" style="margin-top:8px;">Downloads a single self-contained <strong>.html</strong> file (your diagram image is baked in). Upload it to your Canvas <strong>Files</strong>.</p>
+      <div style="font-size: 12px; font-weight: 600; margin: 14px 0 6px;">Embed snippet for Canvas</div>
+      <p class="hint" style="margin-bottom:6px;">Paste the Canvas address of your uploaded file here and the embed code fills in automatically:</p>
+      <input type="url" id="canvas-url" placeholder="https://canvas.sydney.edu.au/courses/.../files/...?preview=..." />
+      <div class="code-panel">
+        <div class="code-panel-actions">
+          <button class="capsule-yellow" id="btn-copy">Copy embed code</button>
+        </div>
+        <pre class="code-body" id="export-box"></pre>
+      </div>
+      <p class="hint">Or replace <strong>YOUR_COURSE_ID</strong> and <strong>YOUR_FILE_ID</strong> by hand, then paste this into your page via the HTML editor.</p>
+    </div>
+
+    <div class="section">
+      <h2 class="optional-head">Optional</h2>
+      <p class="hint">Save your project to a file so you can reopen and keep editing later.</p>
+      <div class="toolbar">
+        <button id="btn-save">Save project</button>
+        <button id="btn-open">Open project</button>
+        <input type="file" id="open-input" accept=".json,.html,.htm,application/json,text/html" style="display:none;" />
+      </div>
+    </div>
+  </div>
+
+  <div id="stage-wrap">
+    <div id="stage-head">
+      <span id="stage-title">Placement</span>
+      <div style="display:flex;gap:8px;">
+        <button class="tiny primary" id="btn-preview">Preview</button>
+        <button class="tiny" id="btn-clear">Clear markers</button>
+      </div>
+    </div>
+    <div id="stage" class="empty">
+      <div id="empty-msg">Upload a diagram on the left to begin.</div>
+    </div>
+    <div id="stage-caption"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var state = { img: null, markers: [], style: 'number', sel: null, ratio: 0.6, preview: false, box: 'dark', desc: 'hover' };
+  var stage = document.getElementById('stage');
+  var fileInput = document.getElementById('file-input');
+  var markerList = document.getElementById('marker-list');
+  var noMarkers = document.getElementById('no-markers');
+
+  function labelFor(i){
+    return state.style === 'letter' ? String.fromCharCode(65 + i) : String(i + 1);
+  }
+
+  function renderStage(){
+    // keep image, clear markers
+    Array.prototype.slice.call(stage.querySelectorAll('.dot-wrap')).forEach(function(d){ d.remove(); });
+    if(!state.img){
+      stage.className = 'empty';
+      if(!stage.querySelector('#empty-msg')){
+        stage.innerHTML = '<div id="empty-msg">Upload a diagram on the left to begin.</div>';
+      }
+      return;
+    }
+    stage.className = 'ready';
+    var msg = stage.querySelector('#empty-msg'); if(msg) msg.remove();
+    if(!stage.querySelector('img')){
+      var im = document.createElement('img'); im.src = state.img; stage.appendChild(im);
+    }
+    state.markers.forEach(function(m, i){
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'position:absolute;left:'+m.x+'%;top:'+m.y+'%;transform:translate(-50%,-50%);';
+      var dot = document.createElement('div');
+      dot.className = 'dot' + (state.sel === i ? ' sel' : '');
+      dot.style.position = 'static';
+      dot.style.transform = 'none';
+      dot.textContent = labelFor(i);
+      wrap.appendChild(dot);
+
+      if (state.preview) {
+        dot.className = 'dot preview-dot';
+        var light = state.box === 'light';
+        var bottom = state.desc === 'bottom';
+        var bg = light ? '#ffffff' : '#424242';
+        var tx = light ? '#2d3b45' : '#ffffff';
+        var ntc = light ? '#2d3b45' : '#F1F1F1';
+        var bd = light ? 'border:1px solid #E0E0E0;' : '';
+        if (!bottom) {
+          var openLeft = m.x > 50, openUp = m.y > 55;
+          var pop = document.createElement('div');
+          pop.className = 'dl-pop-preview';
+          pop.style.cssText = 'display:none;position:absolute;'+(openLeft?'right:40px;':'left:40px;')+(openUp?'bottom:-6px;':'top:-6px;')+'width:340px;max-width:70vw;background:'+bg+';color:'+tx+';'+bd+'border-radius:0;padding:16px 18px;box-shadow:0 3px 14px rgba(0,0,0,0.35);z-index:60;font-family:inherit;';
+          pop.innerHTML = '<strong style="display:block;font-size:14px;line-height:1.35;">'+ (m.title||'') +'</strong>' + (m.note?'<div style="font-size:13px;color:'+ntc+';margin-top:10px;line-height:1.6;">'+m.note+'</div>':'');
+          wrap.appendChild(pop);
+          wrap.addEventListener('mouseenter', function(){ wrap.style.zIndex='50'; pop.style.display='block'; });
+          wrap.addEventListener('mouseleave', function(){ wrap.style.zIndex=''; pop.style.display='none'; });
+        } else {
+          // Bottom mode: hovering reveals this marker's caption in the box below.
+          var idx = i;
+          wrap.addEventListener('mouseenter', function(){ showCaption(idx); });
+          wrap.addEventListener('mouseleave', function(){ showCaption(null); });
+        }
+      } else {
+        dot.addEventListener('mousedown', function(e){ startDrag(e, i); });
+      }
+      wrap.className = 'dot-wrap';
+      stage.appendChild(wrap);
+    });
+
+    // Rounded caption box below the image (preview of "list below" mode).
+    var cap = document.getElementById('stage-caption');
+    if (cap) {
+      if (state.preview && state.desc === 'bottom' && state.markers.length) {
+        cap.innerHTML = '<div id="prev-cap-box" style="width:100%;box-sizing:border-box;margin-top:14px;background:#F1F1F1;border-radius:0;padding:16px 18px;font-family:\'Lato Extended\',Lato,\'Helvetica Neue\',Arial,sans-serif;min-height:24px;"><div style="font-size:13px;color:#6E6E6E;font-style:italic;">Hover a marker to see its label.</div></div>';
+      } else {
+        cap.innerHTML = '';
+      }
+    }
+  }
+
+  // Fill the preview caption box with one marker's label, or the hint when null.
+  function showCaption(i){
+    var box = document.getElementById('prev-cap-box');
+    if (!box) return;
+    if (i === null || i == null) {
+      box.innerHTML = '<div style="font-size:13px;color:#6E6E6E;font-style:italic;">Hover a marker to see its label.</div>';
+      return;
+    }
+    var m = state.markers[i] || {};
+    box.innerHTML = '<strong style="display:block;font-size:14px;line-height:1.35;">'+labelFor(i)+'. '+(m.title||'')+'</strong>'+(m.note?'<div style="font-size:13px;color:#2d3b45;margin-top:10px;line-height:1.6;">'+m.note+'</div>':'');
+  }
+
+  function renderList(){
+    markerList.innerHTML = '';
+    noMarkers.style.display = state.markers.length ? 'none' : 'block';
+    state.markers.forEach(function(m, i){
+      var row = document.createElement('div'); row.className = 'marker-row';
+      var badge = document.createElement('div'); badge.className = 'marker-badge'; badge.textContent = labelFor(i);
+      var grow = document.createElement('div'); grow.className = 'grow';
+      var title = document.createElement('input'); title.type='text'; title.placeholder='Label (e.g. Mantle)'; title.value = m.title||'';
+      title.addEventListener('input', function(){ m.title = title.value; });
+      var note = document.createElement('textarea'); note.placeholder='Optional description'; note.value = m.note||'';
+      note.addEventListener('input', function(){ m.note = note.value; });
+      var del = document.createElement('button'); del.className='tiny del'; del.textContent='Remove';
+      del.addEventListener('click', function(){ state.markers.splice(i,1); state.sel=null; renderAll(); });
+      grow.appendChild(title); grow.appendChild(note); grow.appendChild(del);
+      row.appendChild(badge); row.appendChild(grow);
+      markerList.appendChild(row);
+    });
+  }
+
+  function renderAll(){ renderStage(); renderList(); }
+
+  // Add marker on stage click (edit mode only)
+  stage.addEventListener('click', function(e){
+    if(!state.img || state.preview) return;
+    if(e.target.classList.contains('dot') || e.target.closest('.dot-wrap')) return;
+    var r = stage.getBoundingClientRect();
+    var x = ((e.clientX - r.left) / r.width) * 100;
+    var y = ((e.clientY - r.top) / r.height) * 100;
+    state.markers.push({ x: Math.round(x*10)/10, y: Math.round(y*10)/10, title:'', note:'' });
+    state.sel = state.markers.length - 1;
+    renderAll();
+  });
+
+  // Drag a marker
+  var drag = null;
+  function startDrag(e, i){
+    e.preventDefault(); e.stopPropagation();
+    state.sel = i; drag = i; renderStage();
+    document.addEventListener('mousemove', onDrag);
+    document.addEventListener('mouseup', endDrag);
+  }
+  function onDrag(e){
+    if(drag===null) return;
+    var r = stage.getBoundingClientRect();
+    var x = Math.max(0, Math.min(100, ((e.clientX - r.left)/r.width)*100));
+    var y = Math.max(0, Math.min(100, ((e.clientY - r.top)/r.height)*100));
+    state.markers[drag].x = Math.round(x*10)/10;
+    state.markers[drag].y = Math.round(y*10)/10;
+    renderStage();
+  }
+  function endDrag(){ drag=null; document.removeEventListener('mousemove', onDrag); document.removeEventListener('mouseup', endDrag); }
+
+  fileInput.addEventListener('change', function(){
+    var f = fileInput.files && fileInput.files[0]; if(!f) return;
+    var reader = new FileReader();
+    reader.onload = function(){
+      state.img = reader.result;
+      var probe = new Image();
+      probe.onload = function(){
+        state.ratio = probe.naturalHeight / probe.naturalWidth || 0.6;
+        updateEmbedSnippet();
+      };
+      probe.src = state.img;
+      stage.innerHTML=''; renderAll();
+    };
+    reader.readAsDataURL(f);
+  });
+
+  document.getElementById('marker-style').addEventListener('change', function(e){
+    state.style = e.target.value; renderAll();
+  });
+  document.getElementById('box-style').addEventListener('change', function(e){
+    state.box = e.target.value; renderStage();
+  });
+  document.getElementById('desc-mode').addEventListener('change', function(e){
+    state.desc = e.target.value; renderStage(); updateEmbedSnippet();
+  });
+
+  document.getElementById('btn-clear').addEventListener('click', function(){
+    state.markers = []; state.sel = null; renderAll();
+  });
+  document.getElementById('btn-preview').addEventListener('click', function(){
+    if(!state.img){ alert('Upload a diagram first.'); return; }
+    state.preview = !state.preview;
+    this.textContent = state.preview ? 'Back to editing' : 'Preview';
+    document.getElementById('stage-title').textContent = state.preview ? 'Preview \u2014 click a marker' : 'Placement';
+    stage.style.cursor = state.preview ? 'default' : 'crosshair';
+    renderStage();
+  });
+
+  // ===== Save / open project (file-based, works everywhere) =====
+  document.getElementById('btn-save').addEventListener('click', function(){
+    if(!state.img && !state.markers.length){ alert('Nothing to save yet.'); return; }
+    var project = {
+      v: 1, img: state.img, markers: state.markers,
+      style: state.style, box: state.box, desc: state.desc, ratio: state.ratio
+    };
+    var blob = new Blob([JSON.stringify(project)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'diagram-project.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  });
+  document.getElementById('btn-open').addEventListener('click', function(){
+    document.getElementById('open-input').click();
+  });
+  document.getElementById('open-input').addEventListener('change', function(){
+    var f = this.files && this.files[0]; if(!f) return;
+    var reader = new FileReader();
+    reader.onload = function(){
+      try {
+        var raw = String(reader.result);
+        var p, imgFromHtml = null;
+        var stamped = raw.match(/<!--DLPROJECT:([\s\S]*?)-->/);
+        if (stamped) {
+          // An exported page: settings from the stamp, picture from the <img> itself.
+          p = JSON.parse(stamped[1].replace(/\\u002d/g, '-'));
+          var im = raw.match(/<img src="([^"]+)" alt="Labelled diagram"/);
+          if (im) imgFromHtml = im[1];
+        } else {
+          p = JSON.parse(raw);
+        }
+        state.img = p.img || imgFromHtml || null;
+        state.markers = Array.isArray(p.markers) ? p.markers : [];
+        state.style = p.style || 'number';
+        state.box = p.box || 'dark';
+        state.desc = p.desc || 'hover';
+        state.ratio = p.ratio || 0.6;
+        state.preview = false; state.sel = null;
+        // Reflect loaded settings in the controls.
+        document.getElementById('marker-style').value = state.style;
+        document.getElementById('box-style').value = state.box;
+        document.getElementById('desc-mode').value = state.desc;
+        var pv = document.getElementById('btn-preview');
+        pv.textContent = 'Preview';
+        document.getElementById('stage-title').textContent = 'Placement';
+        if (state.img) { stage.innerHTML = ''; }
+        renderAll(); updateEmbedSnippet();
+      } catch(e){ alert('That file could not be opened. Choose a project .json, or an .html page this builder exported.'); }
+    };
+    reader.readAsText(f);
+    this.value = '';
+  });
+
+  // Export
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function buildHtml(){
+    var src = state.img || 'PASTE_YOUR_IMAGE';
+    var light = state.box === 'light';
+    var bottom = state.desc === 'bottom';
+    var boxBg = light ? '#ffffff' : '#424242';
+    var boxTx = light ? '#2d3b45' : '#ffffff';
+    var boxNote = light ? '#2d3b45' : '#F1F1F1';
+    var boxBorder = light ? 'border:1px solid #E0E0E0;' : '';
+
+    var items = state.markers.map(function(m,i){
+      var openLeft = m.x > 50;
+      var openUp = m.y > 55;
+      var hSide = openLeft ? 'right:40px;' : 'left:40px;';
+      var vSide = openUp ? 'bottom:-6px;' : 'top:-6px;';
+      if (bottom) {
+        // No popup on the marker; hovering it reveals its caption in the box below.
+        return '    <div class="dl-mark" data-i="'+i+'" style="position:absolute;left:'+m.x+'%;top:'+m.y+'%;transform:translate(-50%,-50%);">\n'+
+'      <button class="dl-dot">'+esc(labelFor(i))+'</button>\n'+
+'    </div>';
+      }
+      var note = m.note ? '<div class="dl-note">'+esc(m.note)+'</div>' : '';
+      return '    <div class="dl-mark" style="position:absolute;left:'+m.x+'%;top:'+m.y+'%;transform:translate(-50%,-50%);">\n'+
+'      <button class="dl-dot">'+esc(labelFor(i))+'</button>\n'+
+'      <div class="dl-pop" style="'+hSide+vSide+'"><strong class="dl-title">'+esc(m.title||'')+'</strong>'+note+'</div>\n'+
+'    </div>';
+    }).join('\n');
+
+    var bottomList = '';
+    if (bottom) {
+      // Each marker hover reveals its own caption in a single rounded box below the image.
+      var caps = state.markers.map(function(m,i){
+        return '      <div class="dl-cap" data-i="'+i+'"><strong style="display:block;font-size:14px;line-height:1.35;">'+esc(labelFor(i))+'. '+esc(m.title||'')+'</strong>'+(m.note?'<div style="font-size:13px;color:#2d3b45;margin-top:10px;line-height:1.6;">'+esc(m.note)+'</div>':'')+'</div>';
+      }).join('\n');
+      bottomList = '  <div id="dl-caption" style="width:100%;box-sizing:border-box;margin-top:14px;background:#F1F1F1;border-radius:0;padding:16px 18px;font-family:\'Lato Extended\',Lato,\'Helvetica Neue\',Arial,sans-serif;min-height:24px;">\n'+
+'    <div class="dl-cap-empty" style="font-size:13px;color:#6E6E6E;font-style:italic;">Hover a marker to see its label.</div>\n'+
+caps+'\n'+
+'  </div>\n';
+    }
+
+    var css =
+'  .dl-mark{z-index:1;}\n'+
+'  .dl-mark:hover{z-index:50;}\n'+
+'  .dl-dot{width:30px;height:30px;border-radius:50%;background:#E64626;color:#ffffff;'+
+"font-family:'Lato Extended',Lato,'Helvetica Neue',Arial,sans-serif;font-size:14px;font-weight:700;border:2px solid #ffffff;"+
+'box-shadow:0 1px 4px rgba(0,0,0,0.35);cursor:pointer;display:block;'+
+'transition:transform .15s ease, background .15s ease, color .15s ease, border-color .15s ease;}\n'+
+'  .dl-mark:hover .dl-dot{background:#2d3b45;color:#fff;border-color:#fff;transform:scale(1.25);}\n'+
+'  .dl-pop{display:none;position:absolute;width:340px;max-width:70vw;background:'+boxBg+';color:'+boxTx+';'+boxBorder+
+"border-radius:0;padding:16px 18px;box-shadow:0 3px 14px rgba(0,0,0,0.35);z-index:60;font-family:'Lato Extended',Lato,'Helvetica Neue',Arial,sans-serif;}\n"+
+'  .dl-title{display:block;font-size:15px;font-weight:700;line-height:1.35;}\n'+
+'  .dl-note{font-size:13px;color:'+boxNote+';margin-top:10px;line-height:1.6;}\n'+
+'  .dl-mark:hover .dl-pop{display:block;}\n'+
+'  .dl-cap{display:none;}\n';
+
+    // The marker positions and settings, stamped into the page as a comment so this
+    // file can be opened again in the builder. The image is left out: it is already in
+    // the <img> above, and carrying a second copy would double the file size.
+    var stamp = '<!--DLPROJECT:' + JSON.stringify({
+      v: 1, markers: state.markers, style: state.style,
+      box: state.box, desc: state.desc, ratio: state.ratio
+    }).replace(/--/g, '\\u002d\\u002d') + '-->\n';
+    var script = bottom
+      ? '<scr'+'ipt>\n(function(){var marks=document.querySelectorAll(".dl-mark");var empty=document.querySelector(".dl-cap-empty");var caps=document.querySelectorAll(".dl-cap");function show(i){caps.forEach(function(c){c.style.display=(c.getAttribute("data-i")===i)?"block":"none";});if(empty)empty.style.display=i===null?"block":"none";}marks.forEach(function(mk){var i=mk.getAttribute("data-i");mk.addEventListener("mouseenter",function(){show(i);});mk.addEventListener("mouseleave",function(){show(null);});});})();\n</scr'+'ipt>\n'
+      : '';
+    return '<!DOCTYPE html>\n<html lang="en">\n<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Labelled diagram</title>\n'+
+'<style>\n'+css+'</style>\n</head>\n'+
+'<body style="margin:0;font-family:\'Lato Extended\',Lato,\'Helvetica Neue\',Arial,sans-serif;">\n'+
+'  <div style="position:relative;width:100%;display:inline-block;line-height:0;">\n'+
+'    <img src="'+src+'" alt="Labelled diagram" style="display:block;width:100%;height:auto;" />\n'+
+items+'\n'+
+'  </div>\n'+
+bottomList+
+script+
+stamp+
+'</body>\n</html>';
+  }
+  function updateEmbedSnippet(){
+    var raw = (document.getElementById('canvas-url').value || '').trim();
+    var course = 'YOUR_COURSE_ID', file = 'YOUR_FILE_ID';
+    if (raw) {
+      var cm = raw.match(/\/courses\/(\d+)/);
+      if (cm) course = cm[1];
+      // file id can appear as ?preview=ID, /files/ID, or &preview=ID
+      var fm = raw.match(/[?&]preview=(\d+)/) || raw.match(/\/files\/(\d+)/);
+      if (fm) file = fm[1];
+    }
+    // Height = image aspect ratio × a typical Canvas content width (~700px). Add room
+    // for the description list when it's shown below the image.
+    var h = Math.max(200, Math.round(700 * (state.ratio || 0.6)) + 4);
+    if (state.desc === 'bottom') { h += 60 + state.markers.length * 70; }
+    document.getElementById('export-box').textContent =
+      '<iframe src="/courses/' + course + '/files/' + file + '/preview" width="100%" height="' + h + '" style="border:0;" allowfullscreen></iframe>';
+  }
+  document.getElementById('canvas-url').addEventListener('input', updateEmbedSnippet);
+  document.getElementById('btn-download').addEventListener('click', function(){
+    if(!state.img){ alert('Upload a diagram first.'); return; }
+    if(!state.markers.length){ alert('Add at least one marker first.'); return; }
+    var html = buildHtml();
+    var blob = new Blob([html], { type: 'text/html' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'labelled-diagram.html';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  });
+  document.getElementById('btn-copy').addEventListener('click', function(){
+    var txt = document.getElementById('export-box').textContent;
+    var b = this;
+    function done(){ b.textContent='Copied!'; setTimeout(function(){ b.textContent='Copy embed code'; },1500); }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(done, function(){ fallback(txt); done(); });
+    } else { fallback(txt); done(); }
+    function fallback(t){ var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); try{document.execCommand('copy');}catch(e){} document.body.removeChild(ta); }
+  });
+
+  updateEmbedSnippet();
+  renderAll();
+})();
+</script>
+</body>
+</html>
